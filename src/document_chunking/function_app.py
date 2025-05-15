@@ -19,7 +19,7 @@ config = Configuration()
 # -------------------------------
 # Logging configuration
 # -------------------------------
-log_level = config.get_value('LOG_LEVEL', 'INFO').upper()
+log_level = config.get_value('LOG_LEVEL', 'DEBUG').upper()
 log_level = getattr(logging, log_level, logging.INFO)
 logging.basicConfig(
     level=log_level, 
