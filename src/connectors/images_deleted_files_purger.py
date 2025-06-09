@@ -19,7 +19,7 @@ class ImagesDeletedFilesPurger:
         self.index_name = os.getenv("AZURE_SEARCH_INDEX_NAME", "ragindex")
         self.container_name = os.getenv("STORAGE_CONTAINER_IMAGES", "documents-images")
         self.storage_account_name = os.getenv("STORAGE_ACCOUNT_NAME")
-        self.blob_base_url = f"https://{self.storage_account_name}.blob.core.windows.net"
+        self.blob_base_url = f"https://{self.storage_account_name}.blob.core.usgovcloudapi.net"
 
         # Warn if some env vars are missing
         if not all([self.index_name, self.container_name, self.storage_account_name]):

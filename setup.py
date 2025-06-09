@@ -3,30 +3,22 @@ import time
 import requests
 import argparse
 import json
-
-from dotenv import load_dotenv
-
 from azure.mgmt.web import WebSiteManagementClient
-from azure.identity import ManagedIdentityCredential, AzureCliCredential, ChainedTokenCredential
+from azure.identity import ManagedIdentityCredential, AzureCliCredential, ChainedTokenCredential, DefaultAzureCredential, AzureAuthorityHosts
 from azure.core.exceptions import ClientAuthenticationError, HttpResponseError
 # Set up logging configuration globally
 logging.getLogger('azure').setLevel(logging.WARNING)
-
-load_dotenv()
-
-from src.configuration import Configuration
-config = Configuration()
 
 def call_search_api(search_service, search_api_version, resource_type, resource_name, method, credential, body=None):
     """
     Calls the Azure Search API with the specified parameters.
     """
-    token = credential.get_token("https://search.azure.com/.default").token
+    token = credential.get_token("https://search.azure.us/.default").token
     headers = {
         "Authorization": f"Bearer {token}",
         'Content-Type': 'application/json'
     }
-    search_endpoint = f"https://{search_service}.search.windows.net/{resource_type}/{resource_name}?api-version={search_api_version}"
+    search_endpoint = f"https://{search_service}.search.azure.us/{resource_type}/{resource_name}?api-version={search_api_version}"
     response = None
     try:
         if method not in ["get", "put", "delete"]:
@@ -60,45 +52,40 @@ def get_function_key(subscription_id, resource_group, function_app_name, credent
     """
     Returns an API key for the given function.
     """    
-    function_key = config.get_value("host--functionkey--default", None)
-
-    if function_key == None or function_key == "":
-        logging.info(f"Obtaining function key after creating or updating its value.")
-        accessToken = f"Bearer {credential.get_token('https://management.azure.com/.default').token}"
-        requestUrl = f"https://management.azure.com/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/Microsoft.Web/sites/{function_app_name}/functions/document_chunking/keys/mykey?api-version=2022-03-01"
-        requestHeaders = {
-            "Authorization": accessToken,
-            "Content-Type": "application/json"
+    logging.info(f"Obtaining function key after creating or updating its value.")
+    accessToken = f"Bearer {credential.get_token('https://management.usgovcloudapi.net/.default').token}"
+    requestUrl = f"https://management.usgovcloudapi.net/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/Microsoft.Web/sites/{function_app_name}/functions/document_chunking/keys/mykey?api-version=2022-03-01"
+    requestHeaders = {
+        "Authorization": accessToken,
+        "Content-Type": "application/json"
+    }
+    data = {
+        "properties": {
+            "name": "mykey"
         }
-        data = {
-            "properties": {
-                "name": "mykey"
-            }
-        }
-        max_attempts = 4
-        for attempt in range(1, max_attempts + 1):
-            logging.info(f"Attempt {attempt}/{max_attempts} to retrieve function key...")
-            try:
-                response = requests.put(requestUrl, headers=requestHeaders, json=data)
-                response_json = response.json()
-            except Exception as e:
-                logging.error(f"Attempt {attempt}: Failed to get a valid JSON response. Error: {str(e)}")
-                response_json = {}
-            
-            if "properties" in response_json and "value" in response_json["properties"]:
-                function_key = response_json["properties"]["value"]
-                logging.info("Function key retrieved successfully.")
-                return function_key
-            else:
-                logging.error(f"Attempt {attempt}: Function key not found in response. Response: {response_json}")
-                if attempt < max_attempts:
-                    logging.info("Retrying in 30 seconds...")
-                    time.sleep(30)
-                    
-        logging.error("Failed to retrieve function key after maximum attempts.")
-        return None
-    
-    return function_key
+    }
+    max_attempts = 4
+    for attempt in range(1, max_attempts + 1):
+        logging.info(f"Attempt {attempt}/{max_attempts} to retrieve function key...")
+        try:
+            response = requests.put(requestUrl, headers=requestHeaders, json=data)
+            response_json = response.json()
+        except Exception as e:
+            logging.error(f"Attempt {attempt}: Failed to get a valid JSON response. Error: {str(e)}")
+            response_json = {}
+        
+        if "properties" in response_json and "value" in response_json["properties"]:
+            function_key = response_json["properties"]["value"]
+            logging.info("Function key retrieved successfully.")
+            return function_key
+        else:
+            logging.error(f"Attempt {attempt}: Function key not found in response. Response: {response_json}")
+            if attempt < max_attempts:
+                logging.info("Retrying in 30 seconds...")
+                time.sleep(30)
+                
+    logging.error("Failed to retrieve function key after maximum attempts.")
+    return None
 
 def approve_private_link_connections(access_token, subscription_id, resource_group, service_name, service_type, api_version):
     """
@@ -112,7 +99,7 @@ def approve_private_link_connections(access_token, subscription_id, resource_gro
     logging.info(f"[approve_private_link_connections] API version: {api_version}")
 
     list_url = (
-        f"https://management.azure.com/subscriptions/{subscription_id}"
+        f"https://management.usgovcloudapi.net/subscriptions/{subscription_id}"
         f"/resourceGroups/{resource_group}/providers/{service_type}/{service_name}"
         f"/privateEndpointConnections?api-version={api_version}"
     )
@@ -139,7 +126,7 @@ def approve_private_link_connections(access_token, subscription_id, resource_gro
             status = connection["properties"]["privateLinkServiceConnectionState"]["status"]
             logging.info(f"[approve_private_link_connections] Checking connection '{connection_name}'. Status: {status}.")
             if status.lower()== "pending":
-                single_connection_url = f"https://management.azure.com{connection_id}?api-version={api_version}"
+                single_connection_url = f"https://management.usgovcloudapi.net{connection_id}?api-version={api_version}"
                 logging.debug(f"[approve_private_link_connections] GET single connection URL: {single_connection_url}")
                 try:
                     single_conn_response = requests.get(single_connection_url, headers=request_headers)
@@ -184,7 +171,7 @@ def approve_search_shared_private_access(subscription_id, resource_group, storag
     try:
         logging.info("Approving search shared private links.")  
         try:
-            token_response = credential.get_token("https://management.azure.com/.default")
+            token_response = credential.get_token("https://management.usgovcloudapi.net/.default")
             access_token = f"Bearer {token_response.token}"
             logging.info("Obtained access token successfully.")
         except ClientAuthenticationError as e:
@@ -245,30 +232,31 @@ def execute_setup(subscription_id, resource_group, function_app_name, search_pri
     """
     This function performs the necessary steps to set up the ingestion sub components.
     """    
+    credential = AzureCliCredential(tenant_id="5ce2ebe1-d0de-4c0f-a171-cd2e9a2f4190")
+    """
+    from msrestazure.azure_cloud import AZURE_US_GOV_CLOUD as CLOUD
     logging.info(f"Getting function app {function_app_name} properties.") 
-    credential = ChainedTokenCredential(
-        ManagedIdentityCredential(),
-        AzureCliCredential()
-    )
-    #web_mgmt_client = WebSiteManagementClient(credential, subscription_id)
-    #function_app_settings = web_mgmt_client.web_apps.list_application_settings(resource_group, function_app_name)
+    credential = DefaultAzureCredential(authority = CLOUD.endpoints.active_directory) #ChainedTokenCredential(ManagedIdentityCredential(),AzureCliCredential())
+    
+    web_mgmt_client = WebSiteManagementClient(credential, subscription_id, base_url = "https://management.usgovcloudapi.net")
+    function_app_settings = web_mgmt_client.web_apps.list_application_settings(resource_group, function_app_name)
     function_endpoint = f"https://{function_app_name}.azurewebsites.net"
-    azure_openai_service_name = config.get_value("AZURE_OPENAI_SERVICE_NAME")
-    search_service = config.get_value("AZURE_SEARCH_SERVICE")
-    search_analyzer_name = config.get_value("SEARCH_ANALYZER_NAME")
-    search_api_version = config.get_value("SEARCH_API_VERSION", "2024-07-01") 
-    search_index_interval = config.get_value("SEARCH_INDEX_INTERVAL")
-    search_index_name = config.get_value("SEARCH_INDEX_NAME")
-    storage_container = config.get_value("STORAGE_CONTAINER")
-    storage_account_name = config.get_value("STORAGE_ACCOUNT_NAME")
-    network_isolation = True if config.get_value("NETWORK_ISOLATION").lower() == "true" else False
-    storage_container = config.get_value("STORAGE_CONTAINER")
-    storage_account_name = config.get_value("STORAGE_ACCOUNT_NAME")
-    azure_openai_embedding_deployment = config.get_value("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding")
-    azure_openai_embedding_model = config.get_value("AZURE_OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
-    azure_embeddings_vector_size = config.get_value("AZURE_EMBEDDINGS_VECTOR_SIZE", "3072")
-    azure_storage_resource_group = config.get_value("AZURE_STORAGE_ACCOUNT_RG")
-    azure_aoai_resource_group = config.get_value("AZURE_AOAI_RG")
+    azure_openai_service_name = function_app_settings.properties["AZURE_OPENAI_SERVICE_NAME"]
+    search_service = function_app_settings.properties["AZURE_SEARCH_SERVICE"]
+    search_analyzer_name = function_app_settings.properties["SEARCH_ANALYZER_NAME"]
+    search_api_version = function_app_settings.properties.get("SEARCH_API_VERSION", "2024-07-01") 
+    search_index_interval = function_app_settings.properties["SEARCH_INDEX_INTERVAL"]
+    search_index_name = function_app_settings.properties["SEARCH_INDEX_NAME"]
+    storage_container = function_app_settings.properties["STORAGE_CONTAINER"]
+    storage_account_name = function_app_settings.properties["STORAGE_ACCOUNT_NAME"]
+    network_isolation = True if function_app_settings.properties["NETWORK_ISOLATION"].lower() == "true" else False
+    storage_container = function_app_settings.properties["STORAGE_CONTAINER"]
+    storage_account_name = function_app_settings.properties["STORAGE_ACCOUNT_NAME"]
+    azure_openai_embedding_deployment = function_app_settings.properties.get("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding")
+    azure_openai_embedding_model = function_app_settings.properties.get("AZURE_OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
+    azure_embeddings_vector_size = function_app_settings.properties.get("AZURE_EMBEDDINGS_VECTOR_SIZE", "3072")
+    azure_storage_resource_group = function_app_settings.properties["AZURE_STORAGE_ACCOUNT_RG"]
+    azure_aoai_resource_group = function_app_settings.properties["AZURE_AOAI_RG"]    
 
     logging.info(f"[execute_setup] Function endpoint: {function_endpoint}")
     logging.info(f"[execute_setup] Search service: {search_service}")
@@ -283,7 +271,24 @@ def execute_setup(subscription_id, resource_group, function_app_name, search_pri
     logging.info(f"[execute_setup] Embedding vector size: {azure_embeddings_vector_size}")
     logging.info(f"[execute_setup] Resource group: {resource_group}")  
     logging.info(f"[execute_setup] Storage resource group: {azure_storage_resource_group}") 
-    logging.info(f"[execute_setup] Azure OpenAI resource group: {azure_aoai_resource_group}")        
+    logging.info(f"[execute_setup] Azure OpenAI resource group: {azure_aoai_resource_group}")   
+    """     
+
+    search_service = "search0-467cky3m2uzbg"
+    search_api_version = "2024-07-01"
+    search_index_name = "ragindex"
+    azure_storage_resource_group = "rg-tw-ai-rag"
+    storage_container = 'documents'
+    storage_account_name = 'strag0467cky3m2uzbg'
+    search_analyzer_name = 'standard'
+    azure_embeddings_vector_size = '3072'
+    network_isolation = False
+    function_endpoint = "https://fninges0-467cky3m2uzbg.azurewebsites.us"
+    function_key = ""
+    azure_openai_service_name = "oai0-467cky3m2uzbg"
+    azure_openai_embedding_deployment = "text-embedding"
+    azure_openai_embedding_model = "text-embedding-3-large"
+    search_index_interval="PT1H"
     
     ###########################################################################
     # NL2SQL Elements
@@ -301,7 +306,7 @@ def execute_setup(subscription_id, resource_group, function_app_name, search_pri
     ###########################################################################
     # Get function key to be used later when creating the skillset
     ########################################################################### 
-    function_key = get_function_key(subscription_id, resource_group, function_app_name, credential)
+    function_key = '' #get_function_key(subscription_id, resource_group, function_app_name, credential)
     if function_key is None:
         logging.error(f"Could not get function key. Please make sure the function {function_app_name}/document_chunking is deployed before running this script.")
         exit(1) 
@@ -310,7 +315,7 @@ def execute_setup(subscription_id, resource_group, function_app_name, search_pri
     # Approve Search Shared Private Links (if needed)
     ########################################################################### 
     logging.info("Approving search shared private links.")  
-    approve_search_shared_private_access(subscription_id, resource_group, azure_storage_resource_group, azure_aoai_resource_group, function_app_name, storage_account_name, azure_openai_service_name, credential)
+    #approve_search_shared_private_access(subscription_id, resource_group, azure_storage_resource_group, azure_aoai_resource_group, function_app_name, storage_account_name, azure_openai_service_name, credential)
 
     ###########################################################################
     # Creating blob containers
@@ -320,7 +325,7 @@ def execute_setup(subscription_id, resource_group, function_app_name, search_pri
     ###############################################################################
     # Creating AI Search datasource
     ###############################################################################
-    def create_datasource(search_service, search_api_version, datasource_name, storage_connection_string, container_name, credential, subfolder=None, identity=None):
+    def create_datasource(search_service, search_api_version, datasource_name, storage_connection_string, container_name, credential, subfolder=None):
         body = {
             "description": f"Datastore for {datasource_name}",
             "type": "azureblob",
@@ -335,18 +340,11 @@ def execute_setup(subscription_id, resource_group, function_app_name, search_pri
                 "query": f"{subfolder}/" if subfolder else ""
             }
         }
-        if identity:
-            body["identity"] = {
-                "@odata.type": "#Microsoft.Azure.Search.DataUserAssignedIdentity",
-                "userAssignedIdentity": identity
-            }
-        
         call_search_api(search_service, search_api_version, "datasources", f"{datasource_name}-datasource", "put", credential, body)
 
     logging.info("Creating datasources step.")
     start_time = time.time()
     storage_connection_string = f"ResourceId=/subscriptions/{subscription_id}/resourceGroups/{azure_storage_resource_group}/providers/Microsoft.Storage/storageAccounts/{storage_account_name}/;"
-    identity = f"/subscriptions/{subscription_id}/resourceGroups/{azure_storage_resource_group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/uai-srch-{resourceToken}/;"
     create_datasource(search_service, search_api_version, f"{search_index_name}", storage_connection_string, storage_container, credential)
     nl2sql_subfolders = {
         "queries": search_index_name_nl2sql_queries,
@@ -1015,7 +1013,7 @@ def execute_setup(subscription_id, resource_group, function_app_name, search_pri
         }
         return skillset_body
 
-    resource_uri = f"https://{azure_openai_service_name}.openai.azure.com/"
+    resource_uri = f"https://{azure_openai_service_name}.openai.azure.us/"
     deployment_id = azure_openai_embedding_deployment
     model_name = azure_openai_embedding_model
     skillsets = [
@@ -1248,20 +1246,18 @@ def execute_setup(subscription_id, resource_group, function_app_name, search_pri
     response_time = time.time() - start_time
     logging.info(f"05 Create indexers step. {round(response_time,2)} seconds")
 
-def main(subscription_id=None, resource_group=None, function_app_name=None, search_principal_id=None, azure_search_use_mis=True, enable_managed_identities=True, enable_env_credentials=True):
+def main(subscription_id=None, resource_group=None, function_app_name=None, search_principal_id='', azure_search_use_mis=False, enable_managed_identities=False, enable_env_credentials=False):
     """
     Sets up a chunking function app in Azure.
     """   
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logging.info(f"Starting setup.")
     if subscription_id is None:
-        subscription_id = config.get_value("AZURE_SUBSCRIPTION_ID")
+        subscription_id = input("Enter subscription ID: ")
     if resource_group is None:
-        resource_group = config.get_value("AZURE_RESOURCE_GROUP_NAME")
+        resource_group = input("Enter function app resource group: ")
     if function_app_name is None:
-        function_app_name = config.get_value("FUNCTION_APP_NAME")
-    if search_principal_id is None:
-        search_principal_id = config.get_value("AZURE_SEARCH_PRINCIPAL_ID", None)
+        function_app_name = input("Enter chunking function app name: ")
     start_time = time.time()
     execute_setup(subscription_id, resource_group, function_app_name, search_principal_id, azure_search_use_mis, enable_managed_identities, enable_env_credentials)
     response_time = time.time() - start_time
@@ -1270,20 +1266,21 @@ def main(subscription_id=None, resource_group=None, function_app_name=None, sear
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')    
     parser = argparse.ArgumentParser(description='Script to do the data ingestion setup for Azure AI Search.')
-    #parser.add_argument('-s', '--subscription_id', help='Subscription ID')
-    #parser.add_argument('-r', '--resource_group', help='Resource group (Function App)')
-    #parser.add_argument('-f', '--function_app_name', help='Chunking function app name')
-    #parser.add_argument('-a', '--search_principal_id', default='none', help='Entra ID of the search service')
-    #parser.add_argument('-m', '--azure_search_use_mis', help='Use Search Service Managed Identity to Connect to data ingestion function')
-    #parser.add_argument('-i', '--enable_managed_identities', action='store_true', default=False, help='Use VM\'s managed identities for the setup')
-    #parser.add_argument('-e', '--enable_env_credentials', action='store_true', default=False, help='Use environment credentials for the setup')    
-    #args = parser.parse_args()
-    #search_use_mis = args.azure_search_use_mis.lower() == "true" if args.azure_search_use_mis not in [None, ""] else False
-    #logging.info(f"[main] Subscription ID: {args.subscription_id}")
-    #logging.info(f"[main] Resource group: {args.resource_group}") 
-    #logging.info(f"[main] Function app name: {args.function_app_name}")
-    #logging.info(f"[main] Search principal ID: {args.search_principal_id}")
-    #logging.info(f"[main] Azure Search use MIS: {search_use_mis}")
-    #logging.info(f"[main] Enable managed identities: {args.enable_managed_identities}")
-    #logging.info(f"[main] Enable environment credentials: {args.enable_env_credentials}")
-    main()
+    parser.add_argument('-s', '--subscription_id', help='Subscription ID')
+    parser.add_argument('-r', '--resource_group', help='Resource group (Function App)')
+    parser.add_argument('-f', '--function_app_name', help='Chunking function app name')
+    parser.add_argument('-a', '--search_principal_id', default='none', help='Entra ID of the search service')
+    parser.add_argument('-m', '--azure_search_use_mis', help='Use Search Service Managed Identity to Connect to data ingestion function')
+    parser.add_argument('-i', '--enable_managed_identities', action='store_true', default=False, help='Use VM\'s managed identities for the setup')
+    parser.add_argument('-e', '--enable_env_credentials', action='store_true', default=False, help='Use environment credentials for the setup')    
+    args = parser.parse_args()
+    search_use_mis = args.azure_search_use_mis.lower() == "true" if args.azure_search_use_mis not in [None, ""] else False
+    logging.info(f"[main] Subscription ID: {args.subscription_id}")
+    logging.info(f"[main] Resource group: {args.resource_group}") 
+    logging.info(f"[main] Function app name: {args.function_app_name}")
+    logging.info(f"[main] Search principal ID: {args.search_principal_id}")
+    logging.info(f"[main] Azure Search use MIS: {search_use_mis}")
+    logging.info(f"[main] Enable managed identities: {args.enable_managed_identities}")
+    logging.info(f"[main] Enable environment credentials: {args.enable_env_credentials}")
+    main(subscription_id=args.subscription_id, resource_group=args.resource_group, function_app_name=args.function_app_name, search_principal_id=args.search_principal_id, 
+        azure_search_use_mis=search_use_mis, enable_managed_identities=args.enable_managed_identities, enable_env_credentials=args.enable_env_credentials)

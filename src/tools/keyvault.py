@@ -15,7 +15,7 @@ class KeyVaultClient:
             logging.error("[keyvault] AZURE_KEY_VAULT_NAME environment variable not set.")
             raise ValueError("AZURE_KEY_VAULT_NAME environment variable not set.")
         
-        self.kv_uri = f"https://{self.key_vault_name}.vault.azure.net"
+        self.kv_uri = f"https://{self.key_vault_name}.vault.usgovcloudapi.net"
         
         # Initialize the ChainedTokenCredential with ManagedIdentityCredential and AzureCliCredential
         try:
